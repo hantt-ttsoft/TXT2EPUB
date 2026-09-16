@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TXT to EPUB - Hàng Loạt (Batch Converter)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 650px; margin: 40px auto; padding: 20px; text-align: center; background-color: #f0f2f5; }
+        .container { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        h1 { color: #1a1a1a; font-size: 22px; margin-bottom: 5px; }
+        p.desc { color: #555; font-size: 14px; margin-bottom: 20px; line-height: 1.5; }
+        
+        .upload-section { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; text-align: left; }
+        .upload-box { border: 2px dashed #ccc; padding: 15px; border-radius: 8px; background: #fafafa; }
+        .upload-box label { font-size: 13px; font-weight: bold; color: #444; display: block; margin-bottom: 5px; }
+        .upload-box input { width: 100%; font-size: 13px; }
+
+        .settings-group { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+        .settings { display: flex; align-items: center; justify-content: space-between; background: #f9f9f9; padding: 12px 15px; border-radius: 8px; border: 1px solid #eee; text-align: left; }
+        .settings label { font-size: 14px; color: #333; font-weight: 500; }
+        .settings input { width: 60px; padding: 5px; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-weight: bold; }
+        
+        button { background-color: #3b82f6; color: white; border: none; padding: 12px 24px; font-size: 16px; font-weight: bold; border-radius: 6px; cursor: pointer; transition: 0.2s; width: 100%; }
+        button:hover { background-color: #2563eb; }
+        button:disabled { background-color: #d1d5db; cursor: not-allowed; }
+        #status { margin-top: 15px; font-size: 14px; color: #2563eb; font-weight: 500; white-space: pre-line; text-align: left; background: #eff6ff; padding: 12px; border-radius: 6px; display: none; }
+        
+        .badge { display: inline-block; padding: 2px 8px; font-size: 11px; font-weight: bold; border-radius: 10px; background: #e0e7ff; color: #3730a3; margin-left: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>TXT to EPUB (Hàng Loạt / Multi-file)</h1>
+    <p class="desc">Chuyển đổi nhiều file TXT sang EPUB chuẩn E-ink. Tự động tạo bìa tên sách khi xử lý hàng loạt.</p>
+    
+    <div class="upload-section">
+        <div class="upload-box">
+            <label for="fileInput">1. Chọn các file TXT truyện (*có thể chọn nhiều file):</label>
+            <input type="file" id="fileInput" accept=".txt" multiple>
+        </div>
+        <div class="upload-box" id="coverBox">
+            <label for="coverInput">2. Ảnh bìa tùy chỉnh <span class="badge">Chỉ áp dụng khi chọn 1 file</span>:</label>
+            <input type="file" id="coverInput" accept="image/jpeg, image/png, image/webp">
+        </div>
+    </div>
+    
+    <div class="settings-group">
+        <div class="settings">
+            <label for="chunkSize">Số chương mỗi phần:<br><small style="color:#777; font-weight:normal;">(Gom để mục lục gọn)</small></label>
+            <input type="number" id="chunkSize" value="20" min="1" max="100">
+        </div>
+        <div class="settings">
+            <label for="fontSize">Cỡ chữ (pt):<br><small style="color:#777; font-weight:normal;">(Màn E-ink khuyến nghị: 16-20pt)</small></label>
+            <input type="number" id="fontSize" value="16" min="10" max="36">
+        </div>
+    </div>
+
+    <button id="convertBtn" disabled>Chuyển đổi & Tải về</button>
+    <div id="status"></div>
+</div>
+
+<script>
+    const fileInput = document.getElementById('fileInput');
+    const coverInput = document.getElementById('coverInput');
+    const coverBox = document.getElementById('coverBox');
+    const convertBtn = document.getElementById('convertBtn');
+    const statusDiv = document.getElementById('status');
+    const chunkSizeInput = document.getElementById('chunkSize');
+    const fontSizeInput = document.getElementById('fontSize');
+    
+    let selectedFiles = [];
+    let coverBuffer = null;
+    let coverMimeType = "image/jpeg";
+    let coverExt = "jpg";
+    const FALLBACK_LINES_PER_CHUNK = 2000; 
+
+    const chapterRegex = /^\s*[【\[《(]?\s*(第[0-9一二两三四五六七八九十百千万零]+[章节回卷集部篇幕折]|chương\s+[0-9]+|quyển\s+[0-9]+|hồi\s+[0-9]+|tiết\s+[0-9]+|chapter\s+[0-9]+)/i;
+
+    function escapeXml(unsafe) {
+        return unsafe.replace(/[<>&'"]/g, function (c) {
+            switch (c) {
+                case '<': return '&lt;'; case '>': return '&gt;';
+                case '&': return '&amp;'; case '\'': return '&apos;'; case '"': return '&quot;';
+            }
+        });
+    }
+
+    fileInput.addEventListener('change', function(e) {
+        selectedFiles = Array.from(e.target.files);
+        if (selectedFiles.length === 0) {
+            convertBtn.disabled = true;
+            return;
+        }
+
+        if (selectedFiles.length > 1) {
+            coverInput.disabled = true;
+            coverBox.style.opacity = "0.5";
+            convertBtn.innerText = `Chuyển đổi ${selectedFiles.length} truyện (Tự tạo bìa tên sách) & Nén ZIP`;
+        } else {
+            coverInput.disabled = false;
+            coverBox.style.opacity = "1";
+            convertBtn.innerText = "Chuyển đổi & Tải về EPUB";
+        }
+
+        statusDiv.style.display = "block";
+        statusDiv.innerText = `Đã chọn ${selectedFiles.length} file TXT. Sẵn sàng chuyển đổi!`;
+        convertBtn.disabled = false;
+    });
+
+    coverInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) {
+            coverBuffer = null;
+            return;
+        }
+        coverMimeType = file.type || "image/jpeg";
+        coverExt = file.name.split('.').pop().toLowerCase();
+        if (coverExt === 'jpeg') coverExt = 'jpg';
+
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+            coverBuffer = evt.target.result;
+        };
+        reader.readAsArrayBuffer(file);
+    });
+
+    // Hàm đọc file dạng ArrayBuffer
+    function readFileAsArrayBuffer(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => resolve(e.target.result);
+            reader.onerror = e => reject(e);
+            reader.readAsArrayBuffer(file);
+        });
+    }
+
+    // Hàm giải mã encoding TXT
+    function decodeText(buffer) {
+        try {
+            const decoder = new TextDecoder('utf-8', { fatal: true });
+            return decoder.decode(buffer);
+        } catch (err) {
+            const gbkDecoder = new TextDecoder('gbk');
+            return gbkDecoder.decode(buffer);
+        }
+    }
+
+    // Hàm tạo 1 file EPUB (dạng Blob) từ nội dung TXT
+    async function createEpubBlob(bookTitle, fileContent, chaptersPerChunk, fontSizePt, customCoverBuffer) {
+        const allLines = fileContent.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+        let chapters = [];
+        let currentChapterTitle = "Bắt đầu";
+        let currentChapterLines = [];
+        let chapterCount = 0;
+
+        for (let line of allLines) {
+            if (line.length < 80 && chapterRegex.test(line)) {
+                if (currentChapterLines.length > 0) {
+                    chapters.push({ title: currentChapterTitle, html: currentChapterLines.join('\n') });
+                }
+                chapterCount++;
+                currentChapterTitle = line.substring(0, 40).replace(/[<>&'"]/g, ''); 
+                currentChapterLines = [`<h2 class="chapter-title">${escapeXml(line)}</h2>`];
+            } else {
+                currentChapterLines.push(`<p>${escapeXml(line)}</p>`);
+            }
+        }
+        if (currentChapterLines.length > 0) {
+            chapters.push({ title: currentChapterTitle, html: currentChapterLines.join('\n') });
+        }
+
+        const chunks = [];
+        if (chapterCount > 1) {
+            for (let i = 0; i < chapters.length; i += chaptersPerChunk) {
+                const chunkChapters = chapters.slice(i, i + chaptersPerChunk);
+                let chunkTitle = chunkChapters[0].title;
+                let chunkHtml = chunkChapters.map(c => c.html).join('\n<hr style="width: 50%; margin: 2em auto; border: 0; border-top: 1px solid #ccc;"/>\n');
+                chunks.push({ title: chunkTitle, html: chunkHtml });
+            }
+        } else {
+            for (let i = 0; i < allLines.length; i += FALLBACK_LINES_PER_CHUNK) {
+                const chunkLines = allLines.slice(i, i + FALLBACK_LINES_PER_CHUNK).map(line => `<p>${escapeXml(line)}</p>`);
+                chunks.push({ title: `Phần ${chunks.length + 1}`, html: chunkLines.join('\n') });
+            }
+        }
+
+        const zip = new JSZip();
+        zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
+
+        zip.folder("META-INF").file("container.xml", 
+`<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>`);
+
+        const oebps = zip.folder("OEBPS");
+        
+        let coverMeta = "";
+        let coverManifest = "";
+        let coverSpine = "";
+        let coverGuide = "";
+
+        // Nếu có ảnh bìa tùy chỉnh (chỉ khi xử lý 1 file)
+        if (customCoverBuffer) {
+            oebps.folder("images").file(`cover.${coverExt}`, customCoverBuffer);
+            
+            const coverXhtml = `<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="zh-CN">
+<head>
+<meta http-equiv="Content-Type" content="application/xhtml+xml; charset=utf-8" />
+<title>Cover</title>
+<style type="text/css">
+  body { margin: 0; padding: 0; text-align: center; background-color: #ffffff; }
+  div.cover { margin: 0; padding: 0; height: 100vh; display: flex; align-items: center; justify-content: center; }
+  img { max-width: 100%; max-height: 100%; object-fit: contain; }
+</style>
+</head>
+<body>
+  <div class="cover">
+    <img src="../images/cover.${coverExt}" alt="Cover" />
+  </div>
+</body>
+</html>`;
+            oebps.folder("text").file("cover.xhtml", coverXhtml);
+
+            coverMeta = `\n    <meta name="cover" content="cover-image"/>`;
+            coverManifest = `    <item id="cover-page" href="text/cover.xhtml" media-type="application/xhtml+xml"/>\n    <item id="cover-image" href="images/cover.${coverExt}" media-type="${coverMimeType}"/>\n`;
+            coverSpine = `    <itemref idref="cover-page"/>\n`;
+            coverGuide = `\n  <guide>\n    <reference type="cover" title="Cover" href="text/cover.xhtml"/>\n  </guide>`;
+        } else {
+            // TỰ ĐỘNG TẠO BÌA CHỮ CHỨA TÊN SÁCH (Dùng SVG / XHTML)
+            const textCoverXhtml = `<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="zh-CN">
+<head>
+<meta http-equiv="Content-Type" content="application/xhtml+xml; charset=utf-8" />
+<title>Cover</title>
+<style type="text/css">
+  body { 
+      margin: 0; padding: 0; 
+      display: table; width: 100%; height: 100%; 
+      background-color: #ffffff; 
+      text-align: center;
+  }
+  .cover-container { 
+      display: table-cell; 
+      vertical-align: middle; 
+      padding: 10% 8%; 
+  }
+  .title-box {
+      border: 3px double #333333;
+      padding: 40px 20px;
+      border-radius: 8px;
+  }
+  h1.book-title { 
+      font-family: "Noto Serif SC", "Source Han Serif SC", "SimSun", serif;
+      font-size: 24pt !important; 
+      font-weight: bold; 
+      color: #111111; 
+      line-height: 1.4;
+      margin: 0;
+      word-break: break-word;
+  }
+</style>
+</head>
+<body>
+  <div class="cover-container">
+    <div class="title-box">
+      <h1 class="book-title">${escapeXml(bookTitle)}</h1>
+    </div>
+  </div>
+</body>
+</html>`;
+            oebps.folder("text").file("cover.xhtml", textCoverXhtml);
+
+            coverManifest = `    <item id="cover-page" href="text/cover.xhtml" media-type="application/xhtml+xml"/>\n`;
+            coverSpine = `    <itemref idref="cover-page"/>\n`;
+            coverGuide = `\n  <guide>\n    <reference type="cover" title="Cover" href="text/cover.xhtml"/>\n  </guide>`;
+        }
+
+        let manifestItems = coverManifest + `<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\n`;
+        let spineItems = coverSpine;
+        let navPoints = "";
+
+        chunks.forEach((chunk, index) => {
+            const chapterId = `chunk${index + 1}`;
+            const fileNameHtml = `${chapterId}.xhtml`;
+            const playOrder = index + 1;
+            
+            manifestItems += `    <item id="${chapterId}" href="text/${fileNameHtml}" media-type="application/xhtml+xml"/>\n`;
+            spineItems += `    <itemref idref="${chapterId}"/>\n`;
+            navPoints += `
+    <navPoint id="navPoint-${playOrder}" playOrder="${playOrder}">
+      <navLabel><text>${escapeXml(chunk.title)}</text></navLabel>
+      <content src="text/${fileNameHtml}"/>
+    </navPoint>`;
+
+            const xhtmlTemplate = `<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="zh-CN">
+<head>
+<meta http-equiv="Content-Type" content="application/xhtml+xml; charset=utf-8" />
+<title>${escapeXml(chunk.title)}</title>
+<style type="text/css">
+  body { 
+      font-family: "Noto Serif SC", "Source Han Serif SC", "SimSun", serif; 
+      margin: 5%; 
+  }
+  p { 
+      font-size: ${fontSizePt}pt !important; 
+      line-height: 1.6 !important; 
+      text-indent: 2em; 
+      margin-bottom: 1.2em; 
+      text-align: justify; 
+  }
+  h2.chapter-title { 
+      text-align: center; 
+      margin: 1.5em 0; 
+      color: #111; 
+      font-size: 1.4em !important; 
+      font-weight: bold; 
+  }
+</style>
+</head>
+<body>
+  ${chunk.html}
+</body>
+</html>`;
+            
+            oebps.folder("text").file(fileNameHtml, xhtmlTemplate);
+        });
+
+        oebps.file("content.opf", 
+`<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="2.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>${escapeXml(bookTitle)}</dc:title>
+    <dc:language>zh-CN</dc:language>
+    <dc:identifier id="BookId">urn:uuid:${Math.random().toString(36).substring(2)}</dc:identifier>${coverMeta}
+  </metadata>
+  <manifest>\n${manifestItems}  </manifest>
+  <spine toc="ncx">\n${spineItems}  </spine>${coverGuide}
+</package>`);
+
+        oebps.file("toc.ncx", 
+`<?xml version="1.0" encoding="UTF-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <head>
+    <meta name="dtb:uid" content="urn:uuid:12345"/>
+    <meta name="dtb:depth" content="1"/>
+    <meta name="dtb:totalPageCount" content="0"/>
+    <meta name="dtb:maxPageNumber" content="0"/>
+  </head>
+  <docTitle><text>${escapeXml(bookTitle)}</text></docTitle>
+  <navMap>${navPoints}
+  </navMap>
+</ncx>`);
+
+        return await zip.generateAsync({ 
+            type: "blob", 
+            mimeType: "application/epub+zip",
+            compression: "DEFLATE",
+            compressionOptions: { level: 9 }
+        });
+    }
+
+    convertBtn.addEventListener('click', async function() {
+        if (selectedFiles.length === 0) return;
+        
+        const chaptersPerChunk = parseInt(chunkSizeInput.value) || 20;
+        const fontSizePt = parseInt(fontSizeInput.value) || 16;
+        
+        convertBtn.disabled = true;
+        statusDiv.style.display = "block";
+
+        // TRƯỜNG HỢP 1: CHỈ CHỌN 1 FILE
+        if (selectedFiles.length === 1) {
+            const file = selectedFiles[0];
+            const bookTitle = file.name.replace(/\.txt$/i, '');
+            statusDiv.innerText = `Đang xử lý: ${file.name}...`;
+
+            try {
+                const buffer = await readFileAsArrayBuffer(file);
+                const fileContent = decodeText(buffer);
+                const epubBlob = await createEpubBlob(bookTitle, fileContent, chaptersPerChunk, fontSizePt, coverBuffer);
+
+                const url = URL.createObjectURL(epubBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${bookTitle}.epub`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                const sizeInMB = (epubBlob.size / (1024 * 1024)).toFixed(2);
+                statusDiv.innerHTML = `<span style="color: #16a34a;">✔ Hoàn thành! Đã tải về <b>${bookTitle}.epub</b> (${sizeInMB} MB).</span>`;
+            } catch (err) {
+                statusDiv.innerText = "Lỗi xử lý file: " + err;
+            } finally {
+                convertBtn.disabled = false;
+            }
+            return;
+        }
+
+        // TRƯỜNG HỢP 2: CHỌN NHIỀU FILE (MULTI-FILE BATCH)
+        const masterZip = new JSZip();
+        let processedCount = 0;
+
+        for (let i = 0; i < selectedFiles.length; i++) {
+            const file = selectedFiles[i];
+            const bookTitle = file.name.replace(/\.txt$/i, '');
+            statusDiv.innerText = `Đang chuyển đổi (${i + 1}/${selectedFiles.length}): ${file.name}...`;
+
+            try {
+                const buffer = await readFileAsArrayBuffer(file);
+                const fileContent = decodeText(buffer);
+                // Với batch, truyền null vào coverBuffer để tự động tạo bìa chữ
+                const epubBlob = await createEpubBlob(bookTitle, fileContent, chaptersPerChunk, fontSizePt, null);
+                
+                masterZip.file(`${bookTitle}.epub`, epubBlob);
+                processedCount++;
+            } catch (err) {
+                console.error(`Lỗi file ${file.name}:`, err);
+            }
+        }
+
+        statusDiv.innerText = `Đang nén ${processedCount} file EPUB vào kho ZIP...`;
+        
+        masterZip.generateAsync({ type: "blob" })
+        .then(function(zipBlob) {
+            const url = URL.createObjectURL(zipBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Converted_EPUBs_${Date.now()}.zip`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            const sizeInMB = (zipBlob.size / (1024 * 1024)).toFixed(2);
+            statusDiv.innerHTML = `<span style="color: #16a34a;">✔ Hoàn tất hàng loạt! Đã xử lý ${processedCount}/${selectedFiles.length} file TXT.<br>Đã tải về gói ZIP: ${sizeInMB} MB.</span>`;
+            convertBtn.disabled = false;
+        })
+        .catch(function(err) {
+            statusDiv.innerText = "Lỗi tạo file ZIP: " + err;
+            convertBtn.disabled = false;
+        });
+    });
+</script>
+
+</body>
+</html>
