@@ -3,188 +3,595 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TXT to EPUB - Hàng Loạt (Batch Converter)</title>
+    <title>TXT to EPUB3 Batch Converter (OpenCC + Xteink & SimKai)</title>
+    <!-- Thư viện nén file ZIP và xuất EPUB3 client-side -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- Thư viện OpenCC-JS chuyển đổi Phồn thể sang Giản thể chuẩn CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.4.2/dist/umd/full.min.js"></script>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 650px; margin: 40px auto; padding: 20px; text-align: center; background-color: #f0f2f5; }
-        .container { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
-        h1 { color: #1a1a1a; font-size: 22px; margin-bottom: 5px; }
-        p.desc { color: #555; font-size: 14px; margin-bottom: 20px; line-height: 1.5; }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; 
+            background-color: #f1f5f9; 
+            color: #0f172a;
+            padding: 16px 12px; 
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+        }
+        .container { 
+            background: #ffffff; 
+            padding: 24px 20px; 
+            border-radius: 20px; 
+            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.08), 0 4px 12px -2px rgba(0, 0, 0, 0.03); 
+            width: 100%;
+            max-width: 650px;
+            margin: auto;
+        }
+        h1 { 
+            color: #0f172a; 
+            font-size: 22px; 
+            font-weight: 800;
+            margin-bottom: 6px; 
+            text-align: center;
+            letter-spacing: -0.02em;
+        }
+        p.desc { 
+            color: #64748b; 
+            font-size: 13.5px; 
+            margin-bottom: 22px; 
+            line-height: 1.5; 
+            text-align: center;
+        }
         
-        .upload-section { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; text-align: left; }
-        .upload-box { border: 2px dashed #ccc; padding: 15px; border-radius: 8px; background: #fafafa; }
-        .upload-box label { font-size: 13px; font-weight: bold; color: #444; display: block; margin-bottom: 5px; }
-        .upload-box input { width: 100%; font-size: 13px; }
+        .upload-section { 
+            display: flex; 
+            flex-direction: column; 
+            gap: 14px; 
+            margin-bottom: 22px; 
+        }
+        .upload-box { 
+            border: 2px dashed #cbd5e1; 
+            padding: 16px; 
+            border-radius: 12px; 
+            background: #f8fafc; 
+            transition: border-color 0.2s, background-color 0.2s;
+        }
+        .upload-box:focus-within, .upload-box:hover {
+            border-color: #2563eb;
+            background-color: #eff6ff;
+        }
+        .upload-box label { 
+            font-size: 13.5px; 
+            font-weight: 700; 
+            color: #334155; 
+            display: block; 
+            margin-bottom: 8px; 
+            line-height: 1.4;
+        }
+        .upload-box input[type="file"] { 
+            width: 100%; 
+            font-size: 13px; 
+            color: #475569;
+            cursor: pointer;
+        }
 
-        .settings-group { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
-        .settings { display: flex; align-items: center; justify-content: space-between; background: #f9f9f9; padding: 12px 15px; border-radius: 8px; border: 1px solid #eee; text-align: left; }
-        .settings label { font-size: 14px; color: #333; font-weight: 500; }
-        .settings input { width: 60px; padding: 5px; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-weight: bold; }
+        .settings-group { 
+            display: flex; 
+            flex-direction: column; 
+            gap: 14px; 
+            margin-bottom: 24px; 
+        }
+        .settings { 
+            display: flex; 
+            flex-direction: column; 
+            gap: 8px; 
+            background: #f8fafc; 
+            padding: 14px 16px; 
+            border-radius: 12px; 
+            border: 1px solid #e2e8f0; 
+            text-align: left; 
+        }
         
-        button { background-color: #3b82f6; color: white; border: none; padding: 12px 24px; font-size: 16px; font-weight: bold; border-radius: 6px; cursor: pointer; transition: 0.2s; width: 100%; }
-        button:hover { background-color: #2563eb; }
-        button:disabled { background-color: #d1d5db; cursor: not-allowed; }
-        #status { margin-top: 15px; font-size: 14px; color: #2563eb; font-weight: 500; white-space: pre-line; text-align: left; background: #eff6ff; padding: 12px; border-radius: 6px; display: none; }
-        
-        .badge { display: inline-block; padding: 2px 8px; font-size: 11px; font-weight: bold; border-radius: 10px; background: #e0e7ff; color: #3730a3; margin-left: 5px; }
+        .settings.highlight-box { 
+            background-color: #f0f9ff; 
+            border-color: #bae6fd; 
+        }
+
+        .settings.opencc-box {
+            background-color: #f0fdf4;
+            border-color: #bbf7d0;
+        }
+
+        .settings label { 
+            font-size: 13.5px; 
+            color: #1e293b; 
+            font-weight: 700; 
+            line-height: 1.4;
+        }
+        .settings label small {
+            display: block;
+            font-weight: normal;
+            font-size: 12px;
+            color: #0284c7;
+            margin-top: 2px;
+        }
+
+        .settings.opencc-box label small {
+            color: #16a34a;
+        }
+
+        .settings select, .settings input[type="number"] { 
+            width: 100%; 
+            padding: 10px 12px; 
+            border: 1px solid #cbd5e1; 
+            border-radius: 8px; 
+            font-size: 14px; 
+            background-color: #ffffff;
+            color: #0f172a;
+            outline: none;
+            appearance: none;
+            -webkit-appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            background-size: 16px;
+        }
+
+        .settings-inline {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .settings-inline label {
+            flex: 1;
+        }
+        .settings-inline input[type="number"] {
+            width: 90px;
+            text-align: center;
+            background-image: none;
+        }
+
+        button.btn-convert { 
+            background-color: #2563eb; 
+            color: #ffffff; 
+            border: none; 
+            padding: 15px 20px; 
+            font-size: 16px; 
+            font-weight: 700; 
+            border-radius: 12px; 
+            cursor: pointer; 
+            transition: background-color 0.2s, transform 0.1s, box-shadow 0.2s; 
+            width: 100%; 
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+        }
+        button.btn-convert:active {
+            transform: scale(0.99);
+        }
+        button.btn-convert:hover { 
+            background-color: #1d4ed8; 
+            box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
+        }
+        button.btn-convert:disabled { 
+            background-color: #94a3b8; 
+            cursor: not-allowed; 
+            box-shadow: none;
+            transform: none;
+        }
+
+        #fileList { 
+            margin-top: 12px; 
+            font-size: 12.5px; 
+            color: #334155; 
+            text-align: left; 
+            max-height: 160px; 
+            overflow-y: auto; 
+            background: #ffffff; 
+            padding: 10px 12px 10px 32px; 
+            border: 1px solid #e2e8f0; 
+            border-radius: 8px; 
+            display: none; 
+            list-style-type: decimal;
+        }
+        #fileList li { 
+            margin-bottom: 6px; 
+            line-height: 1.4;
+        }
+        .chap-badge {
+            display: inline-block;
+            background: #e0f2fe;
+            color: #0369a1;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            margin-left: 6px;
+        }
+
+        #status { 
+            margin-top: 18px; 
+            font-size: 13.5px; 
+            color: #d97706; 
+            font-weight: 600; 
+            white-space: pre-line; 
+            text-align: center;
+            line-height: 1.5;
+        }
+
+        .progress-bar-container { 
+            width: 100%; 
+            background-color: #e2e8f0; 
+            border-radius: 999px; 
+            height: 10px; 
+            margin-top: 16px; 
+            display: none; 
+            overflow: hidden; 
+        }
+        .progress-bar { 
+            width: 0%; 
+            height: 100%; 
+            background-color: #2563eb; 
+            transition: width 0.3s ease; 
+        }
+
+        @media (min-width: 540px) {
+            body { padding: 32px 16px; }
+            .container { padding: 32px 28px; }
+            h1 { font-size: 24px; }
+            .settings-inline input[type="number"] { width: 110px; }
+        }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>TXT to EPUB (Hàng Loạt / Multi-file)</h1>
-    <p class="desc">Chuyển đổi nhiều file TXT sang EPUB chuẩn E-ink. Tự động tạo bìa tên sách khi xử lý hàng loạt.</p>
+    <h1>TXT to EPUB3 (Xteink &amp; SimKai)</h1>
+    <p class="desc">Chuyển Phồn thể sang Giản thể (OpenCC), dọn ký tự rác, sửa lỗi ngoặc/dấu ba chấm &amp; xuất hàng loạt cho máy Xteink.</p>
     
     <div class="upload-section">
         <div class="upload-box">
-            <label for="fileInput">1. Chọn các file TXT truyện (*có thể chọn nhiều file):</label>
+            <label for="fileInput">1. Chọn file TXT truyện tiếng Trung (*Nhiều file cùng lúc):</label>
             <input type="file" id="fileInput" accept=".txt" multiple>
+            <ol id="fileList"></ol>
         </div>
-        <div class="upload-box" id="coverBox">
-            <label for="coverInput">2. Ảnh bìa tùy chỉnh <span class="badge">Chỉ áp dụng khi chọn 1 file</span>:</label>
+        <div class="upload-box">
+            <label for="coverInput">2. Chọn ảnh bìa chung (*Tuỳ chọn - JPG/PNG/WebP):</label>
             <input type="file" id="coverInput" accept="image/jpeg, image/png, image/webp">
         </div>
     </div>
     
     <div class="settings-group">
-        <div class="settings">
-            <label for="chunkSize">Số chương mỗi phần:<br><small style="color:#777; font-weight:normal;">(Gom để mục lục gọn)</small></label>
-            <input type="number" id="chunkSize" value="20" min="1" max="100">
+        <!-- Chuyển đổi Phồn thể sang Giản thể (OpenCC) -->
+        <div class="settings opencc-box">
+            <label for="openccMode">
+                Chuyển Phồn thể (繁體) sang Giản thể (簡體):
+                <small>Giúp font SimKai không bị lỗi thiếu chữ hoặc hiển thị ô vuông</small>
+            </label>
+            <select id="openccMode">
+                <option value="t2s" selected>Phồn thể -> Giản thể (OpenCC Standard - Khuyên dùng)</option>
+                <option value="tw2s">Phồn thể Đài Loan -> Giản thể Trung Quốc (TW -> CN)</option>
+                <option value="hk2s">Phồn thể Hồng Kông -> Giản thể Trung Quốc (HK -> CN)</option>
+                <option value="none">Không chuyển đổi (Giữ nguyên văn bản gốc)</option>
+            </select>
         </div>
+
+        <!-- Chỉnh sửa Dấu Ba Chấm Ellipsis -->
+        <div class="settings highlight-box">
+            <label for="fixEllipsisMode">
+                Sửa lỗi dấu ba chấm (……):
+                <small>Font SimKai bị cắt giảm dễ bị mất/nuốt dấu …… tiếng Trung</small>
+            </label>
+            <select id="fixEllipsisMode">
+                <option value="ascii" selected>Đổi thành ... (Dấu chấm ASCII - Hiển thị 100% trên SimKai)</option>
+                <option value="cjk_double">Chuẩn hóa thành …… (Cặp Ellipsis CJK)</option>
+                <option value="keep">Giữ nguyên bản gốc trong TXT</option>
+            </select>
+        </div>
+
+        <!-- Chỉnh sửa Dấu Ngoặc Kép -->
+        <div class="settings highlight-box">
+            <label for="fixQuotesMode">
+                Sửa dấu ngoặc kép CJK:
+                <small>Sửa lỗi ngoặc 「」/“” không hiện trên Xteink</small>
+            </label>
+            <select id="fixQuotesMode">
+                <option value="ascii" selected>Đổi thành " " (Ngoặc kép ASCII - Hiện 100%)</option>
+                <option value="convert">Đổi thành “ và ” (Ngoặc cong CJK)</option>
+                <option value="vertical_hard">Đổi thành ﹁ và ﹂ (Ngoặc Dọc Cứng - Cho dàn trang dọc)</option>
+                <option value="none">Giữ nguyên bản gốc</option>
+            </select>
+        </div>
+
+        <!-- Quét tiêu đề chương -->
         <div class="settings">
-            <label for="fontSize">Cỡ chữ (pt):<br><small style="color:#777; font-weight:normal;">(Màn E-ink khuyến nghị: 16-20pt)</small></label>
+            <label for="chapterDetectMode">Chế độ nhận diện tiêu đề Chương:</label>
+            <select id="chapterDetectMode">
+                <option value="auto" selected>Tự động thông minh (第x章, Chương x, Chapter x, 001., Phiên ngoại...)</option>
+                <option value="strict">Chỉ quét từ khóa "第...章 / Chương / Chapter"</option>
+                <option value="number">Quét số đầu dòng (001., 1., 01 -)</option>
+            </select>
+        </div>
+
+        <!-- Kiểu dàn trang -->
+        <div class="settings">
+            <label for="writingMode">Kiểu dàn trang (Writing Mode):</label>
+            <select id="writingMode">
+                <option value="horizontal" selected>Ngang (Tiêu chuẩn - Lật trang trái)</option>
+                <option value="vertical">Dọc (Kiểu Trung/Nhật - Lật trang phải)</option>
+            </select>
+        </div>
+
+        <!-- Số chương / phần -->
+        <div class="settings settings-inline">
+            <label for="chunkSize">
+                Số chương mỗi file HTML:
+                <small style="color:#64748b;">Gom bớt chương giúp Xteink load nhẹ (Đặt 1 nếu muốn 1 chương/file)</small>
+            </label>
+            <input type="number" id="chunkSize" value="20" min="1" max="200">
+        </div>
+
+        <!-- Cỡ chữ pt -->
+        <div class="settings settings-inline">
+            <label for="fontSize">Cỡ chữ (pt):</label>
             <input type="number" id="fontSize" value="16" min="10" max="36">
         </div>
     </div>
 
-    <button id="convertBtn" disabled>Chuyển đổi & Tải về</button>
+    <button id="convertBtn" class="btn-convert" disabled>Chuyển Đổi EPUB 3</button>
+    <div class="progress-bar-container" id="progressContainer">
+        <div class="progress-bar" id="progressBar"></div>
+    </div>
     <div id="status"></div>
 </div>
 
 <script>
     const fileInput = document.getElementById('fileInput');
     const coverInput = document.getElementById('coverInput');
-    const coverBox = document.getElementById('coverBox');
     const convertBtn = document.getElementById('convertBtn');
     const statusDiv = document.getElementById('status');
+    const fileListOl = document.getElementById('fileList');
     const chunkSizeInput = document.getElementById('chunkSize');
     const fontSizeInput = document.getElementById('fontSize');
+    const writingModeSelect = document.getElementById('writingMode');
+    const fixQuotesSelect = document.getElementById('fixQuotesMode');
+    const fixEllipsisSelect = document.getElementById('fixEllipsisMode');
+    const openccModeSelect = document.getElementById('openccMode');
+    const chapterDetectSelect = document.getElementById('chapterDetectMode');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBar = document.getElementById('progressBar');
     
-    let selectedFiles = [];
+    let loadedFiles = [];
     let coverBuffer = null;
     let coverMimeType = "image/jpeg";
     let coverExt = "jpg";
-    const FALLBACK_LINES_PER_CHUNK = 2000; 
+    const FALLBACK_LINES_PER_CHUNK = 300; 
 
-    const chapterRegex = /^\s*[【\[《(]?\s*(第[0-9一二两三四五六七八九十百千万零]+[章节回卷集部篇幕折]|chương\s+[0-9]+|quyển\s+[0-9]+|hồi\s+[0-9]+|tiết\s+[0-9]+|chapter\s+[0-9]+)/i;
+    // Cache OpenCC instances to avoid repeated initialization
+    const openccCache = {};
 
-    function escapeXml(unsafe) {
-        return unsafe.replace(/[<>&'"]/g, function (c) {
-            switch (c) {
-                case '<': return '&lt;'; case '>': return '&gt;';
-                case '&': return '&amp;'; case '\'': return '&apos;'; case '"': return '&quot;';
-            }
-        });
+    const regexAuto = /^\s*[【\[《(]?\s*(第[0-9一二两三四五六七八九十百千万零]+[章节回卷集部篇幕折]|chương\s+[0-9IVXLCDM]+|quyển\s+[0-9IVXLCDM]+|hồi\s+[0-9IVXLCDM]+|tiết\s+[0-9IVXLCDM]+|chapter\s+[0-9IVXLCDM]+|mở\s+đầu|lời\s+bạt|phiên\s+ngoại|ngoại\s+truyện|tiết\s+tử|phụ\s+chương|prologue|epilogue|extra|0*[0-9]{1,4}\s*[\.\-\:\_\s])/i;
+    const regexStrict = /^\s*[【\[《(]?\s*(第[0-9一二两三四五六七八九十百千万零]+[章节回卷集部篇幕折]|chương\s+[0-9]+|chapter\s+[0-9]+)/i;
+    const regexNumber = /^\s*0*[0-9]{1,4}\s*[\.\-\:\_\s]/;
+
+    function getChapterRegex(mode) {
+        if (mode === 'strict') return regexStrict;
+        if (mode === 'number') return regexNumber;
+        return regexAuto;
     }
 
-    fileInput.addEventListener('change', function(e) {
-        selectedFiles = Array.from(e.target.files);
-        if (selectedFiles.length === 0) {
-            convertBtn.disabled = true;
+    function cleanXmlText(text) {
+        if (!text) return "";
+        return text
+            .replace(/<lt>/gi, '&lt;')
+            .replace(/<gt>/gi, '&gt;')
+            .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\uFFFE\uFFFF]/g, '');
+    }
+
+    function escapeXml(unsafe) {
+        return unsafe
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&apos;');
+    }
+
+    function getOpenccConverter(mode) {
+        if (mode === 'none' || typeof OpenCC === 'undefined') return null;
+        if (openccCache[mode]) return openccCache[mode];
+
+        try {
+            // Sửa mã ngôn ngữ đích từ 's' thành 'cn' chuẩn OpenCC-JS
+            let options = { from: 't', to: 'cn' };
+            if (mode === 'tw2s') options = { from: 'tw', to: 'cn' };
+            else if (mode === 'hk2s') options = { from: 'hk', to: 'cn' };
+            else if (mode === 't2s') options = { from: 't', to: 'cn' };
+
+            const conv = OpenCC.Converter(options);
+            openccCache[mode] = conv;
+            return conv;
+        } catch (e) {
+            console.error("Lỗi khởi tạo OpenCC:", e);
+            return null;
+        }
+    }
+
+    function processTextLine(text, quoteMode, ellipsisMode, openccConv) {
+        if (!text) return "";
+        let result = text;
+
+        // 1. Chuyển Phồn thể sang Giản thể bằng OpenCC
+        if (openccConv && typeof openccConv === 'function') {
+            try {
+                result = openccConv(result);
+            } catch (e) {
+                console.error("OpenCC error on line:", e);
+            }
+        }
+
+        // 2. Xử lý dấu ba chấm tiếng Trung (Ellipsis) cho font SimKai
+        if (ellipsisMode === 'ascii') {
+            result = result
+                .replace(/[\u2026\u22EF]{1,}/g, '...')
+                .replace(/…{1,}/g, '...')
+                .replace(/⋯{1,}/g, '...');
+        } else if (ellipsisMode === 'cjk_double') {
+            result = result
+                .replace(/[\u2026\u22EF]{1,}/g, '……')
+                .replace(/…{1,}/g, '……')
+                .replace(/\.{3,}/g, '……');
+        }
+
+        // 3. Xử lý dấu ngoặc CJK
+        if (quoteMode === 'ascii') {
+            result = result
+                .replace(/[「」『』“”]/g, '"')
+                .replace(/[〈〉‘’]/g, "'");
+        } else if (quoteMode === 'convert') {
+            result = result
+                .replace(/「/g, '“').replace(/」/g, '”')
+                .replace(/『/g, '“').replace(/』/g, '”')
+                .replace(/〈/g, '‘').replace(/〉/g, '’');
+        } else if (quoteMode === 'vertical_hard') {
+            result = result
+                .replace(/「/g, '﹁').replace(/」/g, '﹂')
+                .replace(/『/g, '﹁').replace(/』/g, '﹂')
+                .replace(/“/g, '﹁').replace(/”/g, '﹂');
+        }
+
+        return result;
+    }
+
+    function detectAndDecode(buffer) {
+        const uint8 = new Uint8Array(buffer);
+        if (uint8.length >= 2 && uint8[0] === 0xFF && uint8[1] === 0xFE) return cleanXmlText(new TextDecoder('utf-16le').decode(buffer));
+        if (uint8.length >= 2 && uint8[0] === 0xFE && uint8[1] === 0xFF) return cleanXmlText(new TextDecoder('utf-16be').decode(buffer));
+        if (uint8.length >= 3 && uint8[0] === 0xEF && uint8[1] === 0xBB && uint8[2] === 0xBF) return cleanXmlText(new TextDecoder('utf-8').decode(buffer));
+
+        let nullCount = 0;
+        const checkLen = Math.min(uint8.length, 2000);
+        for (let i = 0; i < checkLen; i++) if (uint8[i] === 0) nullCount++;
+        
+        if (checkLen > 0 && (nullCount / checkLen) > 0.1) {
+            let evenNulls = 0, oddNulls = 0;
+            for (let i = 0; i < checkLen; i++) {
+                if (uint8[i] === 0) { if (i % 2 === 0) evenNulls++; else oddNulls++; }
+            }
+            const enc = oddNulls > evenNulls ? 'utf-16le' : 'utf-16be';
+            return cleanXmlText(new TextDecoder(enc).decode(buffer));
+        }
+
+        try {
+            return cleanXmlText(new TextDecoder('utf-8', { fatal: true }).decode(buffer));
+        } catch (e) {
+            try { return cleanXmlText(new TextDecoder('gb18030').decode(buffer)); } 
+            catch (err) { return cleanXmlText(new TextDecoder('utf-8').decode(buffer)); }
+        }
+    }
+
+    function countChapters(text, mode) {
+        const reg = getChapterRegex(mode);
+        const lines = text.split(/\r?\n/);
+        let count = 0;
+        for (let l of lines) {
+            const trimL = l.trim();
+            if (trimL.length > 0 && trimL.length < 80 && reg.test(trimL)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    function updateFileListUI() {
+        fileListOl.innerHTML = '';
+        if (loadedFiles.length === 0) {
+            fileListOl.style.display = 'none';
             return;
         }
+        
+        const mode = chapterDetectSelect.value;
+        loadedFiles.forEach(f => {
+            const chapCount = countChapters(f.content, mode);
+            const li = document.createElement('li');
+            li.innerHTML = `${escapeXml(f.name)}.txt <span class="chap-badge">${chapCount} chương</span>`;
+            fileListOl.appendChild(li);
+        });
+        fileListOl.style.display = 'block';
+    }
 
-        if (selectedFiles.length > 1) {
-            coverInput.disabled = true;
-            coverBox.style.opacity = "0.5";
-            convertBtn.innerText = `Chuyển đổi ${selectedFiles.length} truyện (Tự tạo bìa tên sách) & Nén ZIP`;
-        } else {
-            coverInput.disabled = false;
-            coverBox.style.opacity = "1";
-            convertBtn.innerText = "Chuyển đổi & Tải về EPUB";
+    fileInput.addEventListener('change', async function(e) {
+        const files = Array.from(e.target.files);
+        if (files.length === 0) { 
+            convertBtn.disabled = true; 
+            loadedFiles = [];
+            updateFileListUI();
+            return; 
+        }
+        
+        statusDiv.innerText = `Đang đọc bảng mã file...`;
+        convertBtn.disabled = true;
+        loadedFiles = [];
+
+        for (let file of files) {
+            const buffer = await file.arrayBuffer();
+            const text = detectAndDecode(buffer);
+            loadedFiles.push({
+                name: file.name.replace(/\.txt$/i, ''),
+                content: text
+            });
         }
 
-        statusDiv.style.display = "block";
-        statusDiv.innerText = `Đã chọn ${selectedFiles.length} file TXT. Sẵn sàng chuyển đổi!`;
+        updateFileListUI();
+        statusDiv.innerText = `Đã tải ${loadedFiles.length} file TXT. Sẵn sàng chuyển đổi!`;
         convertBtn.disabled = false;
+    });
+
+    chapterDetectSelect.addEventListener('change', function() {
+        if (loadedFiles.length > 0) updateFileListUI();
     });
 
     coverInput.addEventListener('change', function(e) {
         const file = e.target.files[0];
-        if (!file) {
-            coverBuffer = null;
-            return;
-        }
+        if (!file) { coverBuffer = null; return; }
         coverMimeType = file.type || "image/jpeg";
         coverExt = file.name.split('.').pop().toLowerCase();
         if (coverExt === 'jpeg') coverExt = 'jpg';
 
         const reader = new FileReader();
-        reader.onload = function(evt) {
-            coverBuffer = evt.target.result;
-        };
+        reader.onload = function(evt) { coverBuffer = evt.target.result; };
         reader.readAsArrayBuffer(file);
     });
 
-    // Hàm đọc file dạng ArrayBuffer
-    function readFileAsArrayBuffer(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = e => resolve(e.target.result);
-            reader.onerror = e => reject(e);
-            reader.readAsArrayBuffer(file);
-        });
-    }
+    async function buildEpubBlob(fileItem, options) {
+        const { chunkSize, fontSizePt, isVertical, fixQuotesMode, fixEllipsisMode, openccMode, detectMode } = options;
+        const chapterReg = getChapterRegex(detectMode);
+        const openccConv = getOpenccConverter(openccMode);
 
-    // Hàm giải mã encoding TXT
-        function decodeText(buffer) {
-        const uint8 = new Uint8Array(buffer);
+        const rawLines = fileItem.content.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
         
-        // 1. Kiểm tra dấu hiệu BOM UTF-8
-        if (uint8.length >= 3 && uint8[0] === 0xEF && uint8[1] === 0xBB && uint8[2] === 0xBF) {
-            return new TextDecoder('utf-8').decode(uint8.subarray(3));
-        }
-        
-        // 2. Kiểm tra dấu hiệu BOM UTF-16LE (Rất phổ biến với file TXT Windows)
-        if (uint8.length >= 2 && uint8[0] === 0xFF && uint8[1] === 0xFE) {
-            return new TextDecoder('utf-16le').decode(uint8);
-        }
-
-        try {
-            // Thử chuẩn UTF-8
-            const decoder = new TextDecoder('utf-8', { fatal: true });
-            return decoder.decode(buffer);
-        } catch (err) {
-            try {
-                // Bắt buộc phải thêm { fatal: true } ở gbk để nó biết đường báo lỗi nếu sai font
-                const gbkDecoder = new TextDecoder('gbk', { fatal: true });
-                return gbkDecoder.decode(buffer);
-            } catch (e) {
-                // Cuối cùng mới chốt bằng UTF-16LE
-                const utf16Decoder = new TextDecoder('utf-16le');
-                return utf16Decoder.decode(buffer);
-            }
-        }
-    }
-
-    // Hàm tạo 1 file EPUB (dạng Blob) từ nội dung TXT
-    async function createEpubBlob(bookTitle, fileContent, chaptersPerChunk, fontSizePt, customCoverBuffer) {
-        const allLines = fileContent.split('\n').map(line => line.trim()).filter(line => line.length > 0);
         let chapters = [];
         let currentChapterTitle = "Bắt đầu";
         let currentChapterLines = [];
         let chapterCount = 0;
 
-        for (let line of allLines) {
-            if (line.length < 80 && chapterRegex.test(line)) {
+        for (let rawLine of rawLines) {
+            let processedLine = processTextLine(rawLine, fixQuotesMode, fixEllipsisMode, openccConv);
+
+            if (processedLine.length < 80 && chapterReg.test(processedLine)) {
                 if (currentChapterLines.length > 0) {
                     chapters.push({ title: currentChapterTitle, html: currentChapterLines.join('\n') });
                 }
                 chapterCount++;
-                currentChapterTitle = line.substring(0, 40).replace(/[<>&'"]/g, ''); 
-                currentChapterLines = [`<h2 class="chapter-title">${escapeXml(line)}</h2>`];
+                currentChapterTitle = processedLine.substring(0, 45); 
+                currentChapterLines = [`<h2 class="chapter-title">${escapeXml(processedLine)}</h2>`];
             } else {
-                currentChapterLines.push(`<p>${escapeXml(line)}</p>`);
+                currentChapterLines.push(`<p>${escapeXml(processedLine)}</p>`);
             }
         }
         if (currentChapterLines.length > 0) {
@@ -193,117 +600,54 @@
 
         const chunks = [];
         if (chapterCount > 1) {
-            for (let i = 0; i < chapters.length; i += chaptersPerChunk) {
-                const chunkChapters = chapters.slice(i, i + chaptersPerChunk);
+            for (let i = 0; i < chapters.length; i += chunkSize) {
+                const chunkChapters = chapters.slice(i, i + chunkSize);
                 let chunkTitle = chunkChapters[0].title;
-                let chunkHtml = chunkChapters.map(c => c.html).join('\n<hr style="width: 50%; margin: 2em auto; border: 0; border-top: 1px solid #ccc;"/>\n');
+                let chunkHtml = chunkChapters.map(c => c.html).join('\n<hr style="width: 40%; margin: 2em auto; border: 0; border-top: 1px solid #cbd5e1;"/>\n');
                 chunks.push({ title: chunkTitle, html: chunkHtml });
             }
         } else {
-            for (let i = 0; i < allLines.length; i += FALLBACK_LINES_PER_CHUNK) {
-                const chunkLines = allLines.slice(i, i + FALLBACK_LINES_PER_CHUNK).map(line => `<p>${escapeXml(line)}</p>`);
+            for (let i = 0; i < rawLines.length; i += FALLBACK_LINES_PER_CHUNK) {
+                const chunkLines = rawLines.slice(i, i + FALLBACK_LINES_PER_CHUNK).map(rawLine => {
+                    let line = processTextLine(rawLine, fixQuotesMode, fixEllipsisMode, openccConv);
+                    return `<p>${escapeXml(line)}</p>`;
+                });
                 chunks.push({ title: `Phần ${chunks.length + 1}`, html: chunkLines.join('\n') });
             }
         }
 
         const zip = new JSZip();
         zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
-
-        zip.folder("META-INF").file("container.xml", 
-`<?xml version="1.0" encoding="UTF-8"?>
-<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
-  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
-</container>`);
+        zip.folder("META-INF").file("container.xml", `<?xml version="1.0" encoding="UTF-8"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`);
 
         const oebps = zip.folder("OEBPS");
-        
-        let coverMeta = "";
-        let coverManifest = "";
-        let coverSpine = "";
-        let coverGuide = "";
+        let coverManifest = "", coverSpine = "";
 
-        // Nếu có ảnh bìa tùy chỉnh (chỉ khi xử lý 1 file)
-        if (customCoverBuffer) {
-            oebps.folder("images").file(`cover.${coverExt}`, customCoverBuffer);
-            
-            const coverXhtml = `<?xml version="1.0" encoding="utf-8"?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="zh-CN">
-<head>
-<meta http-equiv="Content-Type" content="application/xhtml+xml; charset=utf-8" />
-<title>Cover</title>
-<style type="text/css">
-  body { margin: 0; padding: 0; text-align: center; background-color: #ffffff; }
-  div.cover { margin: 0; padding: 0; height: 100vh; display: flex; align-items: center; justify-content: center; }
-  img { max-width: 100%; max-height: 100%; object-fit: contain; }
-</style>
-</head>
-<body>
-  <div class="cover">
-    <img src="../images/cover.${coverExt}" alt="Cover" />
-  </div>
-</body>
-</html>`;
-            oebps.folder("text").file("cover.xhtml", coverXhtml);
-
-            coverMeta = `\n    <meta name="cover" content="cover-image"/>`;
-            coverManifest = `    <item id="cover-page" href="text/cover.xhtml" media-type="application/xhtml+xml"/>\n    <item id="cover-image" href="images/cover.${coverExt}" media-type="${coverMimeType}"/>\n`;
+        if (coverBuffer) {
+            oebps.folder("images").file(`cover.${coverExt}`, coverBuffer);
+            oebps.folder("text").file("cover.xhtml", `<!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml"><head><meta charset="utf-8"/><title>Cover</title><style>body{margin:0;padding:0;text-align:center;}img{max-width:100%;max-height:100vh;}</style></head><body><img src="../images/cover.${coverExt}"/></body></html>`);
+            coverManifest = `    <item id="cover-page" href="text/cover.xhtml" media-type="application/xhtml+xml"/>\n    <item id="cover-image" href="images/cover.${coverExt}" media-type="${coverMimeType}" properties="cover-image"/>\n`;
             coverSpine = `    <itemref idref="cover-page"/>\n`;
-            coverGuide = `\n  <guide>\n    <reference type="cover" title="Cover" href="text/cover.xhtml"/>\n  </guide>`;
-        } else {
-            // TỰ ĐỘNG TẠO BÌA CHỮ CHỨA TÊN SÁCH (Dùng SVG / XHTML)
-            const textCoverXhtml = `<?xml version="1.0" encoding="utf-8"?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="zh-CN">
-<head>
-<meta http-equiv="Content-Type" content="application/xhtml+xml; charset=utf-8" />
-<title>Cover</title>
-<style type="text/css">
-  body { 
-      margin: 0; padding: 0; 
-      display: table; width: 100%; height: 100%; 
-      background-color: #ffffff; 
-      text-align: center;
-  }
-  .cover-container { 
-      display: table-cell; 
-      vertical-align: middle; 
-      padding: 10% 8%; 
-  }
-  .title-box {
-      border: 3px double #333333;
-      padding: 40px 20px;
-      border-radius: 8px;
-  }
-  h1.book-title { 
-      font-family: "Noto Serif SC", "Source Han Serif SC", "SimSun", serif;
-      font-size: 24pt !important; 
-      font-weight: bold; 
-      color: #111111; 
-      line-height: 1.4;
-      margin: 0;
-      word-break: break-word;
-  }
-</style>
-</head>
-<body>
-  <div class="cover-container">
-    <div class="title-box">
-      <h1 class="book-title">${escapeXml(bookTitle)}</h1>
-    </div>
-  </div>
-</body>
-</html>`;
-            oebps.folder("text").file("cover.xhtml", textCoverXhtml);
-
-            coverManifest = `    <item id="cover-page" href="text/cover.xhtml" media-type="application/xhtml+xml"/>\n`;
-            coverSpine = `    <itemref idref="cover-page"/>\n`;
-            coverGuide = `\n  <guide>\n    <reference type="cover" title="Cover" href="text/cover.xhtml"/>\n  </guide>`;
         }
 
-        let manifestItems = coverManifest + `<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\n`;
+        let manifestItems = coverManifest + `    <item id="nav" href="text/nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>\n    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\n`;
         let spineItems = coverSpine;
-        let navPoints = "";
+        let navPointsNcx = "", navListHtml = "";
+
+        const fontStack = `"SimKai", "KaiTi", "Songti SC", "SimSun", serif`;
+
+        const cssStyle = isVertical ? `
+  html, body, p, div, h2 {
+      -webkit-writing-mode: vertical-rl !important;
+      -epub-writing-mode: vertical-rl !important;
+      writing-mode: vertical-rl !important;
+  }
+  body { font-family: ${fontStack}; margin: 3%; padding: 0; }
+  p { font-size: ${fontSizePt}pt !important; line-height: 1.7 !important; text-indent: 2em; margin-left: 1em !important; margin-right: 0 !important; margin-bottom: 0 !important; text-align: justify; }
+  h2.chapter-title { text-align: center; margin: 0 1.5em !important; font-size: 1.3em !important; font-weight: bold; }` : `
+  body { font-family: ${fontStack}; margin: 5%; }
+  p { font-size: ${fontSizePt}pt !important; line-height: 1.6 !important; text-indent: 2em; margin-bottom: 1em; text-align: justify; }
+  h2.chapter-title { text-align: center; margin: 1.5em 0; font-size: 1.3em !important; font-weight: bold; }`;
 
         chunks.forEach((chunk, index) => {
             const chapterId = `chunk${index + 1}`;
@@ -312,163 +656,112 @@
             
             manifestItems += `    <item id="${chapterId}" href="text/${fileNameHtml}" media-type="application/xhtml+xml"/>\n`;
             spineItems += `    <itemref idref="${chapterId}"/>\n`;
-            navPoints += `
-    <navPoint id="navPoint-${playOrder}" playOrder="${playOrder}">
-      <navLabel><text>${escapeXml(chunk.title)}</text></navLabel>
-      <content src="text/${fileNameHtml}"/>
-    </navPoint>`;
+            navPointsNcx += `<navPoint id="navPoint-${playOrder}" playOrder="${playOrder}"><navLabel><text>${escapeXml(chunk.title)}</text></navLabel><content src="text/${fileNameHtml}"/></navPoint>`;
+            navListHtml += `<li><a href="${fileNameHtml}">${escapeXml(chunk.title)}</a></li>\n`;
 
-            const xhtmlTemplate = `<?xml version="1.0" encoding="utf-8"?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="zh-CN">
+            const xhtmlTemplate = `<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="zh-CN" lang="zh-CN">
 <head>
-<meta http-equiv="Content-Type" content="application/xhtml+xml; charset=utf-8" />
+<meta charset="utf-8" />
 <title>${escapeXml(chunk.title)}</title>
 <style type="text/css">
-  body { 
-      font-family: "Noto Serif SC", "Source Han Serif SC", "SimSun", serif; 
-      margin: 5%; 
-  }
-  p { 
-      font-size: ${fontSizePt}pt !important; 
-      line-height: 1.6 !important; 
-      text-indent: 2em; 
-      margin-bottom: 1.2em; 
-      text-align: justify; 
-  }
-  h2.chapter-title { 
-      text-align: center; 
-      margin: 1.5em 0; 
-      color: #111; 
-      font-size: 1.4em !important; 
-      font-weight: bold; 
-  }
+${cssStyle}
 </style>
 </head>
 <body>
   ${chunk.html}
 </body>
 </html>`;
-            
             oebps.folder("text").file(fileNameHtml, xhtmlTemplate);
         });
 
+        oebps.folder("text").file("nav.xhtml", `<!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="zh-CN"><head><meta charset="utf-8"/><title>Toc</title></head><body><nav epub:type="toc"><ol>${navListHtml}</ol></nav></body></html>`);
+
+        const pageProgression = isVertical ? 'page-progression-direction="rtl"' : 'page-progression-direction="ltr"';
+        const convertedTitle = openccConv ? openccConv(fileItem.name) : fileItem.name;
+
         oebps.file("content.opf", 
 `<?xml version="1.0" encoding="UTF-8"?>
-<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="2.0">
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="BookId" ${pageProgression}>
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:title>${escapeXml(bookTitle)}</dc:title>
+    <dc:title>${escapeXml(convertedTitle)}</dc:title>
     <dc:language>zh-CN</dc:language>
-    <dc:identifier id="BookId">urn:uuid:${Math.random().toString(36).substring(2)}</dc:identifier>${coverMeta}
+    <dc:identifier id="BookId">urn:uuid:${Math.random().toString(36).substring(2)}</dc:identifier>
+    <meta property="dcterms:modified">${new Date().toISOString().split('.')[0]}Z</meta>
+    ${isVertical ? '<meta property="primary-writing-mode">vertical-rl</meta>' : ''}
   </metadata>
   <manifest>\n${manifestItems}  </manifest>
-  <spine toc="ncx">\n${spineItems}  </spine>${coverGuide}
+  <spine toc="ncx" ${pageProgression}>\n${spineItems}  </spine>
 </package>`);
 
-        oebps.file("toc.ncx", 
-`<?xml version="1.0" encoding="UTF-8"?>
-<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
-  <head>
-    <meta name="dtb:uid" content="urn:uuid:12345"/>
-    <meta name="dtb:depth" content="1"/>
-    <meta name="dtb:totalPageCount" content="0"/>
-    <meta name="dtb:maxPageNumber" content="0"/>
-  </head>
-  <docTitle><text>${escapeXml(bookTitle)}</text></docTitle>
-  <navMap>${navPoints}
-  </navMap>
-</ncx>`);
+        oebps.file("toc.ncx", `<?xml version="1.0" encoding="UTF-8"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head><meta name="dtb:uid" content="12345"/></head><docTitle><text>${escapeXml(convertedTitle)}</text></docTitle><navMap>${navPointsNcx}</navMap></ncx>`);
 
-        return await zip.generateAsync({ 
-            type: "blob", 
-            mimeType: "application/epub+zip",
-            compression: "DEFLATE",
-            compressionOptions: { level: 9 }
-        });
+        return await zip.generateAsync({ type: "blob", mimeType: "application/epub+zip", compression: "DEFLATE" });
     }
 
     convertBtn.addEventListener('click', async function() {
-        if (selectedFiles.length === 0) return;
+        if (loadedFiles.length === 0) return;
         
-        const chaptersPerChunk = parseInt(chunkSizeInput.value) || 20;
+        const chunkSize = parseInt(chunkSizeInput.value) || 20;
         const fontSizePt = parseInt(fontSizeInput.value) || 16;
+        const isVertical = writingModeSelect.value === "vertical";
+        const fixQuotesMode = fixQuotesSelect.value;
+        const fixEllipsisMode = fixEllipsisSelect.value;
+        const openccMode = openccModeSelect.value;
+        const detectMode = chapterDetectSelect.value;
         
         convertBtn.disabled = true;
-        statusDiv.style.display = "block";
+        progressContainer.style.display = 'block';
+        progressBar.style.width = '0%';
 
-        // TRƯỜNG HỢP 1: CHỈ CHỌN 1 FILE
-        if (selectedFiles.length === 1) {
-            const file = selectedFiles[0];
-            const bookTitle = file.name.replace(/\.txt$/i, '');
-            statusDiv.innerText = `Đang xử lý: ${file.name}...`;
+        const options = { chunkSize, fontSizePt, isVertical, fixQuotesMode, fixEllipsisMode, openccMode, detectMode };
 
+        if (loadedFiles.length === 1) {
+            statusDiv.innerText = `Đang chuyển Phồn -> Giản thể & xuất EPUB: ${loadedFiles[0].name}...`;
             try {
-                const buffer = await readFileAsArrayBuffer(file);
-                const fileContent = decodeText(buffer);
-                const epubBlob = await createEpubBlob(bookTitle, fileContent, chaptersPerChunk, fontSizePt, coverBuffer);
-
-                const url = URL.createObjectURL(epubBlob);
+                const blob = await buildEpubBlob(loadedFiles[0], options);
+                const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `${bookTitle}.epub`;
+                a.download = `${loadedFiles[0].name}.epub`;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
-
-                const sizeInMB = (epubBlob.size / (1024 * 1024)).toFixed(2);
-                statusDiv.innerHTML = `<span style="color: #16a34a;">✔ Hoàn thành! Đã tải về <b>${bookTitle}.epub</b> (${sizeInMB} MB).</span>`;
-            } catch (err) {
-                statusDiv.innerText = "Lỗi xử lý file: " + err;
-            } finally {
-                convertBtn.disabled = false;
-            }
-            return;
-        }
-
-        // TRƯỜNG HỢP 2: CHỌN NHIỀU FILE (MULTI-FILE BATCH)
-        const masterZip = new JSZip();
-        let processedCount = 0;
-
-        for (let i = 0; i < selectedFiles.length; i++) {
-            const file = selectedFiles[i];
-            const bookTitle = file.name.replace(/\.txt$/i, '');
-            statusDiv.innerText = `Đang chuyển đổi (${i + 1}/${selectedFiles.length}): ${file.name}...`;
-
-            try {
-                const buffer = await readFileAsArrayBuffer(file);
-                const fileContent = decodeText(buffer);
-                // Với batch, truyền null vào coverBuffer để tự động tạo bìa chữ
-                const epubBlob = await createEpubBlob(bookTitle, fileContent, chaptersPerChunk, fontSizePt, null);
                 
-                masterZip.file(`${bookTitle}.epub`, epubBlob);
-                processedCount++;
+                progressBar.style.width = '100%';
+                statusDiv.innerHTML = `<span style="color: #2563eb;">Thành công! Đã chuyển Phồn thể sang Giản thể, sửa ký tự &amp; xuất file EPUB hoàn chỉnh.</span>`;
             } catch (err) {
-                console.error(`Lỗi file ${file.name}:`, err);
+                statusDiv.innerText = "Lỗi xử lý file: " + err.message;
             }
-        }
-
-        statusDiv.innerText = `Đang nén ${processedCount} file EPUB vào kho ZIP...`;
-        
-        masterZip.generateAsync({ type: "blob" })
-        .then(function(zipBlob) {
+        } else {
+            const masterZip = new JSZip();
+            for (let i = 0; i < loadedFiles.length; i++) {
+                statusDiv.innerText = `Đang xử lý (${i + 1}/${loadedFiles.length}): ${loadedFiles[i].name}...`;
+                try {
+                    const blob = await buildEpubBlob(loadedFiles[i], options);
+                    masterZip.file(`${loadedFiles[i].name}.epub`, blob);
+                } catch (err) {
+                    console.error(`Lỗi file ${loadedFiles[i].name}:`, err);
+                }
+                progressBar.style.width = `${Math.round(((i + 1) / loadedFiles.length) * 100)}%`;
+            }
+            
+            statusDiv.innerText = "Đang đóng gói file ZIP tổng...";
+            const zipBlob = await masterZip.generateAsync({ type: "blob" });
             const url = URL.createObjectURL(zipBlob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `Converted_EPUBs_${Date.now()}.zip`;
+            a.download = `Epub_Cleaned_Xteink_${Date.now()}.zip`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
-
-            const sizeInMB = (zipBlob.size / (1024 * 1024)).toFixed(2);
-            statusDiv.innerHTML = `<span style="color: #16a34a;">✔ Hoàn tất hàng loạt! Đã xử lý ${processedCount}/${selectedFiles.length} file TXT.<br>Đã tải về gói ZIP: ${sizeInMB} MB.</span>`;
-            convertBtn.disabled = false;
-        })
-        .catch(function(err) {
-            statusDiv.innerText = "Lỗi tạo file ZIP: " + err;
-            convertBtn.disabled = false;
-        });
+            
+            statusDiv.innerHTML = `<span style="color: #2563eb;">Thành công! Đã chuyển đổi &amp; nén ${loadedFiles.length} file EPUB tối ưu SimKai.</span>`;
+        }
+        
+        convertBtn.disabled = false;
     });
 </script>
 
